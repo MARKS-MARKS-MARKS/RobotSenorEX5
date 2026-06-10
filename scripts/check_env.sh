@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-ENV_NAME="${ENV_NAME:-rs_exp5}"
+ENV_NAME="${ENV_NAME:-pytorch}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! command -v conda >/dev/null 2>&1; then
@@ -21,6 +21,9 @@ echo
 echo "[INFO] NVIDIA driver"
 if command -v nvidia-smi >/dev/null 2>&1; then
   nvidia-smi || echo "[WARN] nvidia-smi failed; CUDA may be unavailable until the driver is fixed."
+  if [ ! -e /dev/nvidia0 ]; then
+    echo "[INFO] /dev/nvidia0 is not visible here; this can happen inside a sandbox/container even when CUDA works in your normal terminal."
+  fi
 else
   echo "[WARN] nvidia-smi not found"
 fi
@@ -45,9 +48,13 @@ except Exception as exc:
 PY
 
 echo
-echo "[INFO] RealSense devices"
-if command -v rs-enumerate-devices >/dev/null 2>&1; then
-  rs-enumerate-devices || echo "[WARN] No RealSense device detected or permission/udev is not ready."
+if [ "${CHECK_REALSENSE:-0}" = "1" ]; then
+  echo "[INFO] RealSense devices"
+  if command -v rs-enumerate-devices >/dev/null 2>&1; then
+    rs-enumerate-devices || echo "[WARN] No RealSense device detected or permission/udev is not ready."
+  else
+    echo "[WARN] rs-enumerate-devices not found"
+  fi
 else
-  echo "[WARN] rs-enumerate-devices not found"
+  echo "[INFO] RealSense device check skipped. Set CHECK_REALSENSE=1 to enable it."
 fi

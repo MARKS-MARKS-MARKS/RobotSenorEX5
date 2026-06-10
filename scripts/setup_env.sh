@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="${ENV_NAME:-rs_exp5}"
+ENV_NAME="${ENV_NAME:-pytorch}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
 CUDA_WHEEL_INDEX="${CUDA_WHEEL_INDEX:-https://download.pytorch.org/whl/cu121}"
 
@@ -22,8 +22,12 @@ fi
 conda activate "${ENV_NAME}"
 python -m pip install --upgrade pip setuptools wheel
 
-echo "Installing GPU PyTorch from ${CUDA_WHEEL_INDEX}"
-python -m pip install --upgrade torch torchvision torchaudio --index-url "${CUDA_WHEEL_INDEX}"
+if python -c 'import torch' >/dev/null 2>&1 && [ "${FORCE_INSTALL_TORCH:-0}" != "1" ]; then
+  echo "PyTorch is already installed in ${ENV_NAME}; set FORCE_INSTALL_TORCH=1 to reinstall."
+else
+  echo "Installing GPU PyTorch from ${CUDA_WHEEL_INDEX}"
+  python -m pip install --upgrade torch torchvision torchaudio --index-url "${CUDA_WHEEL_INDEX}"
+fi
 
 python -m pip install -r "${ROOT_DIR}/requirements.txt"
 

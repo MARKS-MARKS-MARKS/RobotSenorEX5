@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RobotSensor EX5 · Cabinet Intelligence</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/face.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero glass-panel">
+        <div>
+          <p class="eyebrow">小组成员： 王昊然 方舟 唐一宁</p>
+          <h1>多层柜体智能识别系统</h1>
+          <p class="subtitle">选择 data 中的 RGB-D session，离线推理、查看空位、推荐放置位置。</p>
+        </div>
+        <div class="hero-status">
+          <span id="healthBadge" class="status-pill">连接中</span>
+          <span id="runBadge" class="status-pill muted">等待任务</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="side-panel glass-panel">
+          <section>
+            <div class="section-head">
+              <p class="eyebrow">Dataset</p>
+              <button id="refreshSessions" class="ghost-button">刷新</button>
+            </div>
+            <div id="sessionList" class="session-list"></div>
+          </section>
+
+          <section class="control-stack">
+            <p class="eyebrow">Detection</p>
+            <label>
+              检测器
+              <select id="detector">
+                <option value="grounding_dino" selected>GroundingDINO</option>
+                <option value="replay">Replay</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label class="switch-row">
+              <input id="autoRoi" type="checkbox" checked />
+              自动标定 ROI
+            </label>
+            <label class="switch-row">
+              <input id="useUnknownObstacles" type="checkbox" />
+              使用 Unknown 障碍
+            </label>
+            <div class="roi-actions">
+              <button id="drawRoiButton" class="ghost-button" type="button">手动框 ROI</button>
+              <button id="clearRoiButton" class="ghost-button" type="button">清除 ROI</button>
+            </div>
+            <p id="roiHint" class="hint-text">可在“原图”上拖拽柜体区域，手动 ROI 会优先于自动 ROI。</p>
+            <button id="runButton" class="primary-button">重新检测当前图片</button>
+          </section>
+        </aside>
+
+        <section class="visual-panel glass-panel">
+          <div class="visual-head">
+            <div>
+              <p class="eyebrow">Visualization</p>
+              <h2 id="activeTitle">请选择一个 session</h2>
+            </div>
+            <div class="tab-row" id="tabs">
+              <button class="tab-button active" data-tab="annotated">识别结果</button>
+              <button class="tab-button" data-tab="top">俯视图</button>
+              <button class="tab-button" data-tab="map">3D 地图</button>
+              <button class="tab-button" data-tab="source">原图</button>
+              <button class="tab-button" data-tab="depth">深度图</button>
+            </div>
+          </div>
+          <section class="placement-card">
+            <div>
+              <p class="eyebrow">Placement</p>
+              <h3>放入新物体</h3>
+            </div>
+            <label>
+              名称/类别
+              <input id="newItem" type="text" value="Tableware" />
+            </label>
+            <label>
+              尺寸 m（宽,高,深）
+              <input id="itemSize" type="text" value="0.14,0.12,0.12" />
+            </label>
+            <button id="placeButton" class="secondary-button" disabled>根据新物体选择空位</button>
+          </section>
+          <div class="image-stage">
+            <img id="mainImage" alt="结果可视化" draggable="false" />
+            <div id="roiBox" class="roi-box"></div>
+            <div id="emptyStage" class="empty-stage">选择 session 后开始探索。</div>
+          </div>
+        </section>
+
+        <aside class="insight-panel glass-panel">
+          <section class="face-card">
+            <p class="eyebrow">Face Motion</p>
+            <div id="faceMotion" class="face-motion" data-state="idle" aria-label="状态助手">
+              <div class="face-orb">
+                <span class="ear ear-left"></span>
+                <span class="ear ear-right"></span>
+                <span class="eye eye-left"></span>
+                <span class="eye eye-right"></span>
+                <span class="cheek cheek-left"></span>
+                <span class="cheek cheek-right"></span>
+                <span class="mouth"></span>
+              </div>
+              <div>
+                <h3 id="faceTitle">准备好了</h3>
+                <p id="faceText">我会在处理时显示状态，不抢戏，只做可爱的提示框架。</p>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <p class="eyebrow">Summary</p>
+            <div id="summaryGrid" class="summary-grid">
+              <div><strong>0</strong><span>Objects</span></div>
+              <div><strong>0</strong><span>Shelves</span></div>
+              <div><strong>0</strong><span>Spaces</span></div>
+              <div><strong>0</strong><span>Obstacles</span></div>
+            </div>
+          </section>
+
+          <section>
+            <p class="eyebrow">Recommendation</p>
+            <div id="recommendation" class="recommendation">等待推理结果。</div>
+          </section>
+
+          <section>
+            <p class="eyebrow">Objects</p>
+            <div id="objectList" class="object-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/face.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

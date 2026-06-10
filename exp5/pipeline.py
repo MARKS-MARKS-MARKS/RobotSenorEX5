@@ -70,10 +70,18 @@ def process_frame(
     semantic_detections = filter_detections_to_single_shelf(semantic_detections, shelves, cfg)
     detections = [det for det in semantic_detections if det.category is not None]
     unknown_detections = [det for det in semantic_detections if det.category is None]
-    semantic_obstacles = semantic_unknown_obstacles(unknown_detections, shelves, detections, cfg)
+    semantic_obstacles = (
+        semantic_unknown_obstacles(unknown_detections, shelves, detections, cfg)
+        if bool(cfg.get("geometry", {}).get("semantic_unknown_obstacles_enabled", True))
+        else []
+    )
     accepted_unknown_boxes = {obs.box for obs in semantic_obstacles}
     accepted_unknown_detections = [det for det in unknown_detections if det.box in accepted_unknown_boxes]
-    depth_obstacles = infer_unknown_obstacles(depth, shelves, detections + accepted_unknown_detections, cfg, frame.color_rgb)
+    depth_obstacles = (
+        infer_unknown_obstacles(depth, shelves, detections + accepted_unknown_detections, cfg, frame.color_rgb)
+        if bool(cfg.get("geometry", {}).get("depth_obstacles_enabled", True))
+        else []
+    )
     obstacles = semantic_obstacles + depth_obstacles
     obstacles = filter_obstacles_against_detections(obstacles, detections, cfg)
     empty_spaces = find_empty_spaces(depth, frame.intrinsics, shelves, detections, obstacles, cfg, roi_mask=roi_mask)

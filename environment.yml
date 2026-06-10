@@ -1,4 +1,4 @@
-name: rs_exp5
+name: pytorch
 channels:
   - pytorch
   - nvidia

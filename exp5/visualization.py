@@ -12,6 +12,7 @@ from .geometry import resolve_cabinet_roi_polygon
 GREEN = (40, 200, 70)
 RED = (40, 40, 230)
 BLUE = (230, 120, 20)
+GOLD = (40, 210, 255)
 WHITE = (245, 245, 245)
 GRAY = (70, 70, 70)
 BLACK = (20, 20, 20)
@@ -64,6 +65,8 @@ def draw_result(color_rgb: np.ndarray, result: PipelineResult, cfg: dict[str, An
         cv2.rectangle(canvas, (x1, y1), (x2, y2), GRAY, 1)
         if obs.source.startswith("semantic_unknown:"):
             _draw_label(canvas, "Unknown obstacle", (x1, y1), GRAY)
+        elif obs.source == "depth_cluster":
+            _draw_label(canvas, "Depth obstacle", (x1, y1), GRAY)
 
     for det in result.objects:
         x1, y1, x2, y2 = det.box
@@ -72,7 +75,42 @@ def draw_result(color_rgb: np.ndarray, result: PipelineResult, cfg: dict[str, An
         label = f"{oid}{det.category}:{det.score:.2f}" if det.category else f"{oid}{det.label}:{det.score:.2f}"
         _draw_label(canvas, label, (x1, y1), GREEN)
 
-    return _append_panel(canvas, result)
+    _draw_recommendation(canvas, result, cfg)
+
+    if bool(cfg.get("output", {}).get("append_info_panel", False)):
+        return _append_panel(canvas, result)
+    return canvas
+
+
+def _draw_recommendation(canvas: np.ndarray, result: PipelineResult, cfg: dict[str, Any]) -> None:
+    rec = result.recommendation
+    if not rec or not rec.empty_space:
+        return
+
+    space = rec.empty_space
+    sx1, sy1, sx2, sy2 = space.box
+    cv2.rectangle(canvas, (sx1, sy1), (sx2, sy2), GOLD, 3)
+
+    placement = cfg.get("placement", {})
+    item_size = placement.get("active_item_size_m") or placement.get("default_item_size_m") or [0.0, 0.0, 0.0]
+    item_w_m = max(0.0, float(item_size[0]))
+    item_h_m = max(0.0, float(item_size[1]))
+    px_per_m_x = max(1.0, (sx2 - sx1) / max(1e-6, float(space.size_m[0])))
+    px_per_m_y = max(1.0, (sy2 - sy1) / max(1e-6, float(space.size_m[1])))
+    insert_w = int(max(18, min(sx2 - sx1, item_w_m * px_per_m_x)))
+    insert_h = int(max(18, min(sy2 - sy1, item_h_m * px_per_m_y)))
+    cx = int((sx1 + sx2) * 0.5)
+    cy = int((sy1 + sy2) * 0.5)
+    ix1 = max(sx1, cx - insert_w // 2)
+    ix2 = min(sx2, ix1 + insert_w)
+    ix1 = max(sx1, ix2 - insert_w)
+    iy2 = sy2
+    iy1 = max(sy1, iy2 - insert_h)
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (ix1, iy1), (ix2, iy2), GOLD, -1)
+    cv2.addWeighted(overlay, 0.26, canvas, 0.74, 0.0, canvas)
+    cv2.rectangle(canvas, (ix1, iy1), (ix2, iy2), GOLD, 3)
+    _draw_label(canvas, f"Place {rec.new_item_category} here", (ix1, iy1), GOLD)
 
 
 def draw_top_view(result: PipelineResult, width: int = 640, height: int = 360) -> np.ndarray:
@@ -104,6 +142,8 @@ def draw_top_view(result: PipelineResult, width: int = 640, height: int = 360) -
                 cv2.rectangle(view, (map_x(ox1), y1 + 8), (map_x(ox2), y2 - 8), GRAY, -1)
                 if obs.source.startswith("semantic_unknown:"):
                     cv2.putText(view, "U", (map_x(ox1) + 3, y1 + 26), cv2.FONT_HERSHEY_SIMPLEX, 0.48, WHITE, 1, cv2.LINE_AA)
+                elif obs.source == "depth_cluster":
+                    cv2.putText(view, "D", (map_x(ox1) + 3, y1 + 26), cv2.FONT_HERSHEY_SIMPLEX, 0.48, WHITE, 1, cv2.LINE_AA)
 
         for det in result.objects:
             ox1, oy1, ox2, oy2 = det.box
@@ -115,8 +155,12 @@ def draw_top_view(result: PipelineResult, width: int = 640, height: int = 360) -
         for space in result.empty_spaces:
             if space.shelf_level == shelf.level:
                 ex1, _, ex2, _ = space.box
-                cv2.rectangle(view, (map_x(ex1), y1 + 12), (map_x(ex2), y2 - 12), BLUE, 2)
-                cv2.putText(view, f"{space.track_id or 'E'} {space.score:.2f}", (map_x(ex1) + 4, y2 - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.42, BLUE, 1, cv2.LINE_AA)
+                is_rec = bool(result.recommendation and result.recommendation.empty_space is space)
+                color = GOLD if is_rec else BLUE
+                thickness = 3 if is_rec else 2
+                cv2.rectangle(view, (map_x(ex1), y1 + 12), (map_x(ex2), y2 - 12), color, thickness)
+                label = "PLACE" if is_rec else f"{space.track_id or 'E'} {space.score:.2f}"
+                cv2.putText(view, label, (map_x(ex1) + 4, y2 - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
 
     rec = result.recommendation
     if rec and rec.empty_space:

@@ -10,10 +10,27 @@ bash scripts/check_env.sh
 bash scripts/run_live.sh
 ```
 
+如果只使用 `data/sessions/` 里的离线数据，可以启动网页界面：
+
+```bash
+bash scripts/run_web.sh
+```
+
+然后打开 `http://127.0.0.1:7860`，选择 `cabinet_01`、`cabinet_02`、`demo` 或 `tune_cabinet` 运行离线识别。网页界面不连接 RealSense，默认使用 `pytorch` conda 环境和 Grounding DINO。
+
+网页界面支持手动框选柜体 ROI：点击“手动框 ROI”，在“原图”上拖拽柜子区域，再运行推理。操作流程分为两步：先点“重新检测当前图片”识别柜内已有物体和候选空位；如果不换图片，之后只需要修改“新物体名称/类别”和“新物体尺寸 m（宽,高,深）”，再点“根据新物体选择空位”，系统不会重新检测图片，只会按类别相近和空间限制重新推荐插入位置，并在识别图和俯视图中用高亮框标出实际建议放置区域。网页默认不使用语义 `Unknown` 障碍，避免空白区域被开放词汇模型误判后吞掉空位；如需把未知物体也作为占用，可勾选“使用 Unknown 障碍”。
+
+如果已经把 GroundingDINO 原版模型放在 `models/groundingdino/`，程序会自动优先读取：
+
+- `models/groundingdino/GroundingDINO_SwinT_OGC.py`
+- `models/groundingdino/groundingdino_swint_ogc.pth`
+
+这类 `.py + .pth` 原版模型还需要安装 GroundingDINO 的 Python 包；如果你下载的是完整 GroundingDINO 源码，可在 `pytorch` 环境中运行 `python -m pip install -e /path/to/GroundingDINO`。如果放的是 Hugging Face 格式模型目录，则目录里需要有 `config.json` 和 `model.safetensors` 或 `pytorch_model.bin`。
+
 如果现场暂时无法连接 RealSense，可以先生成并回放一个演示 session：
 
 ```bash
-conda activate rs_exp5
+conda activate pytorch
 python -m exp5 --mode demo --session data/sessions/demo
 bash scripts/run_replay.sh data/sessions/demo --detector replay
 ```
@@ -83,4 +100,4 @@ bash scripts/check_env.sh
 - 空位判定默认采用“按层投影占用”：某一层内检测到物体或未知障碍后，会把该物体框在这一层对应的整列矩形区域视为占用，剩余连续区域才会输出为 `Empty Space`。
 - 实时稳定器补回短时漏检物体后，会再次按最终物体/障碍列表切分空位，避免蓝色空位框包住已经显示出来的物体。
 - 实时模式默认开启静态场景稳定器：物体/空位需要连续确认后输出，短时漏检会保持上一状态，并平滑框坐标。调试时可加 `--no-stability` 关闭。
-- 你的当前检查结果：`rs_exp5` 环境正常，PyTorch CUDA 可用，RealSense D435I 可枚举，USB 连接为 3.2。
+- 你的当前检查结果：`pytorch` 环境正常，PyTorch CUDA 可用，RealSense D435I 可枚举，USB 连接为 3.2。

@@ -11,3 +11,4 @@ timm
 safetensors
 huggingface_hub
 socksio
+flask

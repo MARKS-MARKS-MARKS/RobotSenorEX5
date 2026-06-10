@@ -267,7 +267,33 @@ class ReplayDetector(BaseDetector):
         return detections
 
 
-class GroundingDinoDetector(BaseDetector):
+def _resolve_local_model_dir(det_cfg: dict[str, Any]) -> Path | None:
+    configured = det_cfg.get("local_model_dir")
+    candidates = [Path(str(configured))] if configured else []
+    candidates.extend([Path("models/groundingdino"), Path("model/groundingdino")])
+    for path in candidates:
+        if path.exists() and path.is_dir():
+            return path
+    return None
+
+
+def _find_original_groundingdino_files(model_dir: Path) -> tuple[Path, Path] | None:
+    config_candidates = sorted(model_dir.glob("*.py"))
+    weight_candidates = sorted(model_dir.glob("*.pth")) + sorted(model_dir.glob("*.pt"))
+    if not config_candidates or not weight_candidates:
+        return None
+    preferred_config = next((path for path in config_candidates if "groundingdino" in path.name.lower()), config_candidates[0])
+    preferred_weight = next((path for path in weight_candidates if "groundingdino" in path.name.lower()), weight_candidates[0])
+    return preferred_config, preferred_weight
+
+
+def _is_transformers_model_dir(model_dir: Path) -> bool:
+    has_config = (model_dir / "config.json").exists()
+    has_weights = any((model_dir / name).exists() for name in ("model.safetensors", "pytorch_model.bin"))
+    return has_config and has_weights
+
+
+class TransformersGroundingDinoDetector(BaseDetector):
     def __init__(self, cfg: dict[str, Any]) -> None:
         self.cfg = cfg
         self.labels, self.label_to_category = flatten_prompts(cfg)
@@ -292,9 +318,14 @@ class GroundingDinoDetector(BaseDetector):
             raise RuntimeError(f"Grounding DINO dependencies are missing: {exc}") from exc
 
         self.torch = torch
-        model_id = det_cfg["model_id"]
+        local_model_dir = _resolve_local_model_dir(det_cfg)
+        if local_model_dir and _is_transformers_model_dir(local_model_dir):
+            model_id = str(local_model_dir)
+            local_pref = True
+        else:
+            model_id = det_cfg["model_id"]
+            local_pref = det_cfg.get("local_files_only", "auto")
         normalize_proxy_environment()
-        local_pref = det_cfg.get("local_files_only", "auto")
         local_first = local_pref == "auto" or bool(local_pref)
         try:
             self.processor = AutoProcessor.from_pretrained(model_id, local_files_only=local_first)
@@ -394,6 +425,124 @@ class GroundingDinoDetector(BaseDetector):
                 )
             )
         return postprocess_detections(detections, self.cfg, width, height)
+
+
+class OriginalGroundingDinoDetector(BaseDetector):
+    def __init__(self, cfg: dict[str, Any], config_path: Path, weights_path: Path) -> None:
+        self.cfg = cfg
+        self.labels, self.label_to_category = flatten_prompts(cfg)
+        self.text_prompt = ". ".join(self.labels) + "."
+        det_cfg = cfg["detector"]
+        self.box_threshold = float(det_cfg["box_threshold"])
+        self.text_threshold = float(det_cfg["text_threshold"])
+        self.unknown_threshold = float(det_cfg.get("unknown_threshold", self.box_threshold))
+        self.low_conf_known_as_unknown = bool(det_cfg.get("low_conf_known_as_unknown", True))
+        self.category_thresholds = {
+            str(category): float(threshold)
+            for category, threshold in det_cfg.get("category_thresholds", {}).items()
+        }
+        self.device_info = choose_device(bool(det_cfg.get("prefer_gpu", True)))
+        print(self.device_info.message)
+
+        try:
+            import torch
+            import groundingdino.datasets.transforms as T
+            from groundingdino.util.inference import load_model, predict
+        except Exception as exc:
+            raise RuntimeError(
+                "Local original GroundingDINO files were found, but the `groundingdino` Python package is missing. "
+                "Install the official GroundingDINO package, or provide a Hugging Face formatted model folder "
+                "with config.json and model weights."
+            ) from exc
+
+        self.torch = torch
+        self.predict = predict
+        self.transform = T.Compose(
+            [
+                T.RandomResize([800], max_size=1333),
+                T.ToTensor(),
+                T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
+        )
+        self.model = load_model(str(config_path), str(weights_path), device=self.device_info.device)
+        print(f"Loaded local GroundingDINO model: {weights_path}")
+
+    def detect(self, color_rgb: np.ndarray) -> list[Detection2D]:
+        from PIL import Image
+
+        image = Image.fromarray(color_rgb)
+        transformed, _ = self.transform(image, None)
+        height, width = color_rgb.shape[:2]
+        boxes, logits, phrases = self.predict(
+            model=self.model,
+            image=transformed,
+            caption=self.text_prompt,
+            box_threshold=min(self.box_threshold, self.unknown_threshold, *self.category_thresholds.values()),
+            text_threshold=self.text_threshold,
+            device=self.device_info.device,
+        )
+
+        detections: list[Detection2D] = []
+        for box, score, phrase in zip(boxes, logits, phrases):
+            label_text, category = normalize_label(phrase, self.label_to_category)
+            score_value = float(score.detach().cpu().item() if hasattr(score, "detach") else score)
+            if category is None:
+                if score_value < self.unknown_threshold:
+                    continue
+                output_category = None
+                source = "grounding_dino_unknown"
+            else:
+                known_threshold = self.category_thresholds.get(category, self.box_threshold)
+                if score_value >= known_threshold:
+                    output_category = category
+                    source = "grounding_dino"
+                elif self.low_conf_known_as_unknown and score_value >= self.unknown_threshold:
+                    output_category = None
+                    source = "grounding_dino_low_conf_known"
+                else:
+                    continue
+            detections.append(
+                Detection2D(
+                    label=label_text,
+                    category=output_category,
+                    score=score_value,
+                    box=_clip_box(_cxcywh_to_xyxy(box, width, height), width, height),
+                    source=source,
+                )
+            )
+        return postprocess_detections(detections, self.cfg, width, height)
+
+
+class GroundingDinoDetector(BaseDetector):
+    def __init__(self, cfg: dict[str, Any]) -> None:
+        det_cfg = cfg["detector"]
+        backend = str(det_cfg.get("backend", "auto"))
+        local_model_dir = _resolve_local_model_dir(det_cfg)
+        original_files = _find_original_groundingdino_files(local_model_dir) if local_model_dir else None
+
+        if backend not in {"auto", "transformers", "original"}:
+            raise RuntimeError("detector.backend must be one of: auto, transformers, original")
+        if backend in {"auto", "original"} and original_files is not None:
+            self.inner: BaseDetector = OriginalGroundingDinoDetector(cfg, *original_files)
+        elif backend == "original":
+            raise RuntimeError("detector.backend is original, but no local .py + .pth GroundingDINO model was found.")
+        else:
+            self.inner = TransformersGroundingDinoDetector(cfg)
+        self.device_info = self.inner.device_info
+
+    def detect(self, color_rgb: np.ndarray) -> list[Detection2D]:
+        return self.inner.detect(color_rgb)
+
+
+def _cxcywh_to_xyxy(box: Any, width: int, height: int) -> list[float]:
+    values = box.detach().cpu().tolist() if hasattr(box, "detach") else list(box)
+    cx, cy, bw, bh = [float(value) for value in values]
+    return [
+        (cx - bw / 2.0) * width,
+        (cy - bh / 2.0) * height,
+        (cx + bw / 2.0) * width,
+        (cy + bh / 2.0) * height,
+    ]
 
 
 def build_detector(cfg: dict[str, Any], detector_type: str | None = None, session_dir: str | Path | None = None) -> BaseDetector:

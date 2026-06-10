@@ -12,7 +12,9 @@ fusion:
 
 detector:
   type: grounding_dino
+  backend: auto
   model_id: IDEA-Research/grounding-dino-tiny
+  local_model_dir: models/groundingdino
   local_files_only: auto
   prefer_gpu: true
   box_threshold: 0.30
@@ -156,25 +158,31 @@ geometry:
   foreground_delta_m: 0.08
   foreground_background_percentile: 72
   depth_hole_fill_kernel: 5
+  depth_obstacles_enabled: false
   obstacle_min_area_px: 280
   obstacle_min_width_px: 12
   obstacle_min_height_px: 14
+  obstacle_color_foreground_enabled: false
   obstacle_color_delta: 34
-  obstacle_max_area_ratio: 0.35
-  obstacle_max_width_ratio: 0.78
+  obstacle_max_area_ratio: 0.22
+  obstacle_max_width_ratio: 0.46
   obstacle_max_height_ratio: 0.90
+  semantic_unknown_max_area_ratio: 0.22
+  semantic_unknown_max_width_ratio: 0.46
+  semantic_unknown_min_score: 0.34
+  semantic_unknown_obstacles_enabled: true
   obstacle_known_overlap_threshold: 0.45
-  obstacle_inflate_px: 12
+  obstacle_inflate_px: 6
   empty_project_occupied_to_full_shelf: true
   empty_final_project_occupied: true
-  empty_final_min_width_px: 24
+  empty_final_min_width_px: 8
   empty_object_shelf_overlap_min: 0.10
-  empty_roi_column_min_ratio: 0.20
+  empty_roi_column_min_ratio: 0.12
   empty_center_mode: center
-  empty_min_width_m: 0.14
-  empty_min_height_m: 0.12
-  empty_min_depth_m: 0.12
-  empty_max_per_shelf: 2
+  empty_min_width_m: 0.04
+  empty_min_height_m: 0.04
+  empty_min_depth_m: 0.04
+  empty_max_per_shelf: 6
   empty_contact_band_ratio: 0.45
   empty_column_occupied_ratio_max: 0.08
   empty_column_full_occupied_ratio_max: 0.03
@@ -183,10 +191,12 @@ geometry:
 placement:
   default_new_item_category: Tableware
   default_item_size_m: [0.14, 0.12, 0.12]
+  candidate_item_size_m: [0.02, 0.02, 0.02]
   size_safety_margin_m: 0.02
-  same_category_bonus: 2.0
+  same_category_bonus: 5.0
+  same_category_same_shelf_bonus: 4.0
   free_area_weight: 1.0
-  distance_weight: 0.4
+  distance_weight: 2.5
 
 stability:
   enabled: true
@@ -210,3 +220,4 @@ output:
   save_top_view: true
   save_json: true
   display: true
+  append_info_panel: false

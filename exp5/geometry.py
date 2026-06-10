@@ -925,11 +925,14 @@ def semantic_unknown_obstacles(
     min_area = int(geom.get("obstacle_min_area_px", 280))
     min_width = int(geom.get("obstacle_min_width_px", 12))
     min_height = int(geom.get("obstacle_min_height_px", 14))
-    max_area_ratio = float(geom.get("obstacle_max_area_ratio", 0.35))
-    max_width_ratio = float(geom.get("obstacle_max_width_ratio", 0.78))
+    max_area_ratio = float(geom.get("semantic_unknown_max_area_ratio", geom.get("obstacle_max_area_ratio", 0.22)))
+    max_width_ratio = float(geom.get("semantic_unknown_max_width_ratio", geom.get("obstacle_max_width_ratio", 0.46)))
     max_height_ratio = float(geom.get("obstacle_max_height_ratio", 0.90))
+    min_score = float(geom.get("semantic_unknown_min_score", 0.34))
 
     for det in unknown_detections:
+        if det.score < min_score:
+            continue
         x1, y1, x2, y2 = det.box
         box_w = max(1, x2 - x1)
         box_h = max(1, y2 - y1)
@@ -1020,7 +1023,7 @@ def infer_unknown_obstacles(
             continue
         background_z = float(np.percentile(band[band_mask], float(geom.get("foreground_background_percentile", 72))))
         depth_foreground = band_mask & (band < background_z - float(geom["foreground_delta_m"]))
-        if color_rgb is not None:
+        if color_rgb is not None and bool(geom.get("obstacle_color_foreground_enabled", False)):
             color_band = color_rgb[y1:y2, x1:x2].astype(np.float32)
             valid_pixels = color_band[band_mask] if np.any(band_mask) else color_band.reshape(-1, 3)
             bg_color = np.median(valid_pixels, axis=0)
@@ -1283,7 +1286,7 @@ def recommend_placement(
         return PlacementRecommendation(new_item_category, None, "No empty space satisfies the configured size/clearance limits.")
 
     placement = cfg["placement"]
-    same_category = [det for det in detections if det.category == new_item_category and det.contact_center_m is not None]
+    same_category = [det for det in detections if det.category == new_item_category and (det.contact_center_m or det.center_m) is not None]
 
     best_space: EmptySpace | None = None
     best_score = -1e9
@@ -1293,13 +1296,22 @@ def recommend_placement(
         if same_category:
             distances = []
             sx, sy, sz = space.center_m
+            same_shelf = False
             for det in same_category:
-                dx, dy, dz = det.contact_center_m or (0.0, 0.0, 0.0)
+                dx, dy, dz = det.contact_center_m or det.center_m or (0.0, 0.0, 0.0)
                 distances.append(((sx - dx) ** 2 + (sy - dy) ** 2 + (sz - dz) ** 2) ** 0.5)
+                _, dy1, _, dy2 = det.box
+                det_cy = (dy1 + dy2) * 0.5
+                if space.box[1] <= det_cy <= space.box[3]:
+                    same_shelf = True
             nearest = min(distances)
             score += float(placement["same_category_bonus"])
+            if same_shelf:
+                score += float(placement.get("same_category_same_shelf_bonus", 4.0))
             score -= nearest * float(placement["distance_weight"])
             reason = f"Near existing {new_item_category} object; distance {nearest:.3f} m."
+            if same_shelf:
+                reason += " Same shelf is preferred."
         else:
             reason = "No same-category object found; selected by free area."
         if score > best_score:

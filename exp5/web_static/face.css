@@ -1,0 +1,174 @@
+.face-card {
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(142, 231, 255, 0.12), rgba(198, 168, 255, 0.08));
+}
+
+.face-motion {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+.face-orb {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 42% 48% 46% 44%;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.85), transparent 14%),
+    linear-gradient(145deg, #91ecff, #d7b9ff 78%);
+  box-shadow: 0 18px 48px rgba(142, 231, 255, 0.25);
+  animation: faceFloat 3.2s ease-in-out infinite;
+}
+
+.ear {
+  position: absolute;
+  top: 14px;
+  width: 24px;
+  height: 30px;
+  border-radius: 50% 50% 40% 40%;
+  background: #c6a8ff;
+  opacity: 0.85;
+}
+
+.ear-left {
+  left: -10px;
+  transform: rotate(-28deg);
+}
+
+.ear-right {
+  right: -10px;
+  transform: rotate(28deg);
+}
+
+.eye,
+.cheek,
+.mouth {
+  position: absolute;
+  display: block;
+}
+
+.eye {
+  top: 43px;
+  width: 13px;
+  height: 18px;
+  border-radius: 999px;
+  background: #14223a;
+  animation: blink 5s infinite;
+}
+
+.eye-left {
+  left: 34px;
+}
+
+.eye-right {
+  right: 34px;
+}
+
+.cheek {
+  top: 64px;
+  width: 16px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 125, 149, 0.35);
+}
+
+.cheek-left {
+  left: 22px;
+}
+
+.cheek-right {
+  right: 22px;
+}
+
+.mouth {
+  left: 43px;
+  top: 68px;
+  width: 24px;
+  height: 13px;
+  border-bottom: 4px solid #14223a;
+  border-radius: 0 0 999px 999px;
+}
+
+.face-motion h3 {
+  margin: 0 0 6px;
+}
+
+.face-motion p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.face-motion[data-state="processing"] .face-orb {
+  animation: facePulse 0.9s ease-in-out infinite;
+}
+
+.face-motion[data-state="processing"] .mouth {
+  width: 18px;
+  height: 18px;
+  border: 4px solid #14223a;
+  border-radius: 999px;
+}
+
+.face-motion[data-state="success"] .face-orb {
+  box-shadow: 0 18px 54px rgba(112, 240, 170, 0.34);
+}
+
+.face-motion[data-state="success"] .mouth {
+  top: 64px;
+  height: 20px;
+  border-bottom-width: 5px;
+}
+
+.face-motion[data-state="warn"] .eye {
+  height: 7px;
+  top: 49px;
+}
+
+.face-motion[data-state="warn"] .mouth,
+.face-motion[data-state="error"] .mouth {
+  top: 73px;
+  border-bottom: 0;
+  border-top: 4px solid #14223a;
+  border-radius: 999px 999px 0 0;
+}
+
+.face-motion[data-state="error"] .face-orb {
+  background: linear-gradient(145deg, #ffb5c2, #c6a8ff 78%);
+}
+
+@keyframes faceFloat {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-7px) rotate(1deg);
+  }
+}
+
+@keyframes facePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.12);
+  }
+}

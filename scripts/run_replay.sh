@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_NAME="${ENV_NAME:-rs_exp5}"
+ENV_NAME="${ENV_NAME:-pytorch}"
 SESSION="${1:-data/sessions/demo}"
 if [ "$#" -gt 0 ]; then
   shift
