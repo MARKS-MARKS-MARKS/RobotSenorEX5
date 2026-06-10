@@ -1,0 +1,13 @@
+numpy
+scipy
+pyyaml
+pillow
+opencv-python
+pyrealsense2
+open3d
+transformers>=4.41
+accelerate
+timm
+safetensors
+huggingface_hub
+socksio
