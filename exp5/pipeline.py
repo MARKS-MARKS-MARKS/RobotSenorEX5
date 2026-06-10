@@ -186,7 +186,8 @@ def _print_summary(result: PipelineResult, output_dir: Path | None = None) -> No
     for obs in result.obstacles:
         center = obs.center_m
         xyz = "n/a" if center is None else f"({center[0]*1000:.1f}, {center[1]*1000:.1f}, {center[2]*1000:.1f}) mm"
-        print(f"- Obstacle / {obs.source}: box={obs.box}, center={xyz}")
+        source = "semantic_unknown" if obs.source.startswith("semantic_unknown:") else obs.source
+        print(f"- Obstacle / {source}: box={obs.box}, center={xyz}")
     for space in result.empty_spaces:
         x, y, z = space.center_m
         print(f"- Empty Space L{space.shelf_level}: box={space.box}, center=({x*1000:.1f}, {y*1000:.1f}, {z*1000:.1f}) mm")
@@ -366,8 +367,8 @@ def run_calibrate_roi(args: Any, cfg: dict[str, Any]) -> None:
 
 def _print_live_line(result: PipelineResult) -> None:
     objects = ", ".join(f"{obj.category}/{obj.label}:{obj.score:.2f}" for obj in result.objects) or "none"
-    semantic_unknowns = [obs.source.split(":", 1)[1] for obs in result.obstacles if obs.source.startswith("semantic_unknown:")]
-    unknowns = ",".join(semantic_unknowns) if semantic_unknowns else "none"
+    semantic_unknown_count = sum(1 for obs in result.obstacles if obs.source.startswith("semantic_unknown:"))
+    unknowns = str(semantic_unknown_count) if semantic_unknown_count else "none"
     print(
         f"[live] device={result.device} fps={result.fps:.1f} objects={objects} "
         f"unknowns={unknowns} empty_spaces={len(result.empty_spaces)}"

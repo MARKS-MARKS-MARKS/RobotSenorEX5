@@ -63,8 +63,7 @@ def draw_result(color_rgb: np.ndarray, result: PipelineResult, cfg: dict[str, An
         x1, y1, x2, y2 = obs.box
         cv2.rectangle(canvas, (x1, y1), (x2, y2), GRAY, 1)
         if obs.source.startswith("semantic_unknown:"):
-            label = obs.source.split(":", 1)[1] or "unknown"
-            _draw_label(canvas, f"Unknown:{label}", (x1, y1), GRAY)
+            _draw_label(canvas, "Unknown obstacle", (x1, y1), GRAY)
 
     for det in result.objects:
         x1, y1, x2, y2 = det.box
@@ -169,8 +168,7 @@ def _append_panel(canvas: np.ndarray, result: PipelineResult) -> np.ndarray:
     if semantic_unknowns:
         y = line("Unknown Obstacles:", y, (210, 210, 210))
         for idx, obs in enumerate(semantic_unknowns[:4], start=1):
-            label = obs.source.split(":", 1)[1] or "unknown"
-            y = line(f"{idx}. {label}: {_format_xyz(obs.center_m)}", y, GRAY, 0.42)
+            y = line(f"{idx}. unknown: {_format_xyz(obs.center_m)}", y, GRAY, 0.42)
         if len(semantic_unknowns) > 4:
             y = line(f"... {len(semantic_unknowns) - 4} more", y, GRAY, 0.42)
         y += 8

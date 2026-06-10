@@ -114,6 +114,72 @@ def roi_mask_from_polygon(shape: tuple[int, int], polygon: list[tuple[int, int]]
     return mask > 0
 
 
+def _auto_roi_polygon_from_color_interior(color_rgb: np.ndarray, cfg: dict[str, Any], fallback: Box) -> list[tuple[int, int]] | None:
+    geom = cfg["geometry"]
+    if not bool(geom.get("roi_color_auto_enabled", True)):
+        return None
+
+    height, width = color_rgb.shape[:2]
+    fx1, fy1, fx2, fy2 = fallback
+    gray = cv2.cvtColor(color_rgb, cv2.COLOR_RGB2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    roi_gray = gray[fy1:fy2, fx1:fx2]
+    if roi_gray.size == 0:
+        return None
+
+    threshold = float(np.percentile(roi_gray, float(geom.get("roi_dark_percentile", 56))))
+    threshold = max(float(geom.get("roi_dark_threshold_min", 52)), min(float(geom.get("roi_dark_threshold_max", 82)), threshold))
+    dark = (gray <= threshold).astype(np.uint8)
+
+    restricted = np.zeros_like(dark)
+    restricted[fy1:fy2, fx1:fx2] = dark[fy1:fy2, fx1:fx2]
+    restricted = cv2.morphologyEx(restricted, cv2.MORPH_CLOSE, np.ones((19, 19), np.uint8))
+    restricted = cv2.morphologyEx(restricted, cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))
+
+    contours, _ = cv2.findContours(restricted, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    fallback_area = max(1, (fx2 - fx1) * (fy2 - fy1))
+    min_area = fallback_area * float(geom.get("roi_dark_min_area_ratio", 0.25))
+    candidates: list[tuple[float, Box]] = []
+    for contour in contours:
+        area = float(cv2.contourArea(contour))
+        if area < min_area:
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < width * 0.30 or h < height * 0.45:
+            continue
+        fill = area / float(max(1, w * h))
+        center_penalty = abs((x + w * 0.5) - width * 0.55) / width
+        score = area * max(0.2, fill) * (1.0 - min(0.8, center_penalty))
+        candidates.append((score, (x, y, x + w, y + h)))
+
+    if not candidates:
+        return None
+
+    _, box = max(candidates, key=lambda item: item[0])
+    x1, y1, x2, y2 = box
+    crop = restricted[y1:y2, x1:x2] > 0
+    if crop.size:
+        col_ratio = crop.mean(axis=0)
+        row_ratio = crop.mean(axis=1)
+        cols = np.where(col_ratio >= float(geom.get("roi_dark_column_min_ratio", 0.18)))[0]
+        rows = np.where(row_ratio >= float(geom.get("roi_dark_row_min_ratio", 0.16)))[0]
+        if cols.size:
+            x1 += int(cols[0])
+            x2 = x1 + int(cols[-1] - cols[0] + 1)
+        if rows.size:
+            y1 += int(rows[0])
+            y2 = y1 + int(rows[-1] - rows[0] + 1)
+
+    margin = int(geom.get("roi_inner_margin_px", 3))
+    x1, y1, x2, y2 = _clamp_box((x1 + margin, y1 + margin, x2 - margin, y2 - margin), width, height)
+    if (x2 - x1) < width * 0.30 or (y2 - y1) < height * 0.45:
+        return None
+    return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
+
 def _auto_roi_polygon_from_depth(depth: np.ndarray, cfg: dict[str, Any], fallback: Box) -> list[tuple[int, int]] | None:
     x1, y1, x2, y2 = fallback
     height, width = depth.shape[:2]
@@ -162,6 +228,9 @@ def resolve_cabinet_roi_polygon(color_rgb: np.ndarray, depth: np.ndarray, cfg: d
 
     box = resolve_cabinet_roi(color_rgb, depth, cfg)
     if str(geom.get("cabinet_roi_mode", "auto")).lower() == "auto":
+        auto_poly = _auto_roi_polygon_from_color_interior(color_rgb, cfg, box)
+        if auto_poly and len(auto_poly) >= 3:
+            return auto_poly
         auto_poly = _auto_roi_polygon_from_depth(depth, cfg, box)
         if auto_poly and len(auto_poly) >= 3:
             return auto_poly
@@ -383,6 +452,267 @@ def _equal_shelf_boundaries(ry1: int, ry2: int, shelf_count: int) -> list[int]:
     return [int(round(value)) for value in np.linspace(ry1, ry2, shelf_count + 1)]
 
 
+def _refine_equal_boundaries_with_color_edges(
+    color_rgb: np.ndarray,
+    roi: Box,
+    boundaries: list[int],
+    cfg: dict[str, Any],
+    roi_mask: np.ndarray | None = None,
+) -> list[int]:
+    geom = cfg["geometry"]
+    if not bool(geom.get("shelf_refine_equal_boundaries", True)) or len(boundaries) <= 2:
+        return boundaries
+
+    rx1, ry1, rx2, ry2 = roi
+    gray = cv2.cvtColor(color_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    band = gray[ry1:ry2, rx1:rx2]
+    if band.size == 0:
+        return boundaries
+
+    if roi_mask is not None:
+        mask_band = roi_mask[ry1:ry2, rx1:rx2]
+        weighted = np.where(mask_band, band, np.nan)
+        with np.errstate(invalid="ignore"):
+            row_mean = np.nanmean(weighted, axis=1)
+        if np.any(~np.isfinite(row_mean)):
+            fallback = float(np.nanmedian(row_mean[np.isfinite(row_mean)])) if np.any(np.isfinite(row_mean)) else float(np.mean(band))
+            row_mean[~np.isfinite(row_mean)] = fallback
+    else:
+        row_mean = band.mean(axis=1)
+
+    kernel = np.ones(11, dtype=np.float32) / 11.0
+    smooth = np.convolve(row_mean.astype(np.float32), kernel, mode="same")
+    gradient = np.abs(np.gradient(smooth))
+    search = int(geom.get("shelf_refine_search_px", 45))
+    min_gradient = float(geom.get("shelf_refine_min_gradient", 1.0))
+    refined = [boundaries[0]]
+    prev = boundaries[0]
+
+    for idx, boundary in enumerate(boundaries[1:-1], start=1):
+        next_boundary = boundaries[idx + 1]
+        lo = max(ry1, boundary - search, prev + int(geom.get("shelf_min_height_px", 50)))
+        hi = min(ry2, boundary + search, next_boundary - int(geom.get("shelf_min_height_px", 50)))
+        if hi <= lo:
+            refined.append(boundary)
+            prev = boundary
+            continue
+
+        local = gradient[lo - ry1 : hi - ry1]
+        if local.size == 0:
+            refined.append(boundary)
+            prev = boundary
+            continue
+        peak_idx = int(np.argmax(local))
+        peak_value = float(local[peak_idx])
+        chosen = lo + peak_idx if peak_value >= min_gradient else boundary
+        refined.append(chosen)
+        prev = chosen
+
+    refined.append(boundaries[-1])
+    return sorted(set(refined))
+
+
+def _sample_voxelized_roi_points(
+    depth: np.ndarray,
+    intr: Intrinsics,
+    cfg: dict[str, Any],
+    roi: Box,
+    roi_mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    geom = cfg["geometry"]
+    rx1, ry1, rx2, ry2 = roi
+    stride = max(1, int(geom.get("shelf_point_sample_stride_px", 2)))
+    ys, xs = np.mgrid[ry1:ry2:stride, rx1:rx2:stride]
+    if ys.size == 0:
+        return np.empty((0, 3), dtype=np.float32), np.empty(0, dtype=np.int32), np.empty(0, dtype=np.int32)
+
+    valid = valid_depth_mask(depth, cfg) & roi_mask
+    sampled_valid = valid[ys, xs]
+    if not np.any(sampled_valid):
+        return np.empty((0, 3), dtype=np.float32), np.empty(0, dtype=np.int32), np.empty(0, dtype=np.int32)
+
+    rows = ys[sampled_valid].astype(np.int32)
+    cols = xs[sampled_valid].astype(np.int32)
+    z = depth[rows, cols].astype(np.float32)
+    x = (cols.astype(np.float32) - float(intr.ppx)) * z / float(intr.fx)
+    y = (rows.astype(np.float32) - float(intr.ppy)) * z / float(intr.fy)
+    points = np.column_stack((x, y, z)).astype(np.float32)
+
+    voxel = max(0.003, float(geom.get("voxel_size_m", 0.01)))
+    quantized = np.floor(points / voxel).astype(np.int32)
+    _, unique_idx = np.unique(quantized, axis=0, return_index=True)
+    unique_idx = np.sort(unique_idx)
+    return points[unique_idx], rows[unique_idx], cols[unique_idx]
+
+
+def _row_edge_strength(
+    color_rgb: np.ndarray,
+    depth: np.ndarray,
+    cfg: dict[str, Any],
+    roi: Box,
+    roi_mask: np.ndarray,
+) -> np.ndarray:
+    rx1, ry1, rx2, ry2 = roi
+    height = depth.shape[0]
+    gray = cv2.cvtColor(color_rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    band = gray[ry1:ry2, rx1:rx2]
+    if band.size == 0:
+        return np.zeros(height, dtype=np.float32)
+
+    mask_band = roi_mask[ry1:ry2, rx1:rx2]
+    if np.any(mask_band):
+        weighted = np.where(mask_band, band, np.nan)
+        with np.errstate(invalid="ignore"):
+            row_mean = np.nanmean(weighted, axis=1)
+        fallback = float(np.nanmedian(row_mean[np.isfinite(row_mean)])) if np.any(np.isfinite(row_mean)) else float(np.mean(band))
+        row_mean[~np.isfinite(row_mean)] = fallback
+    else:
+        row_mean = band.mean(axis=1)
+
+    color_grad = np.abs(np.gradient(np.convolve(row_mean, np.ones(9, dtype=np.float32) / 9.0, mode="same")))
+    depth_band = np.where(valid_depth_mask(depth[ry1:ry2, rx1:rx2], cfg) & mask_band, depth[ry1:ry2, rx1:rx2], np.nan)
+    depth_grad = np.zeros_like(color_grad)
+    rows_with_depth = np.any(np.isfinite(depth_band), axis=1)
+    if np.any(rows_with_depth):
+        row_depth = np.full(depth_band.shape[0], np.nan, dtype=np.float32)
+        row_depth[rows_with_depth] = np.nanmedian(depth_band[rows_with_depth], axis=1)
+        fallback_depth = float(np.nanmedian(row_depth[rows_with_depth]))
+        row_depth[~np.isfinite(row_depth)] = fallback_depth
+        depth_grad = np.abs(np.gradient(np.convolve(row_depth, np.ones(7, dtype=np.float32) / 7.0, mode="same"))) * 120.0
+
+    combined = color_grad + depth_grad
+    out = np.zeros(height, dtype=np.float32)
+    out[ry1:ry2] = combined.astype(np.float32)
+    return out
+
+
+def _point_cloud_shelf_boundary_candidates(
+    color_rgb: np.ndarray,
+    depth: np.ndarray,
+    intr: Intrinsics,
+    cfg: dict[str, Any],
+    roi: Box,
+    roi_mask: np.ndarray,
+) -> list[tuple[int, float]]:
+    geom = cfg["geometry"]
+    rx1, ry1, rx2, ry2 = roi
+    roi_width = max(1, rx2 - rx1)
+    points, rows, cols = _sample_voxelized_roi_points(depth, intr, cfg, roi, roi_mask)
+    if points.shape[0] == 0:
+        return []
+
+    y_bin_m = max(float(geom.get("shelf_plane_y_bin_m", 0.018)), float(geom.get("voxel_size_m", 0.01)))
+    qy = np.floor(points[:, 1] / y_bin_m).astype(np.int32)
+    bins, inverse, counts = np.unique(qy, return_inverse=True, return_counts=True)
+    min_points = int(geom.get("shelf_plane_min_points", 45))
+    min_width_ratio = float(geom.get("shelf_plane_min_width_ratio", 0.34))
+    min_depth_span = float(geom.get("shelf_plane_min_depth_span_m", 0.02))
+    edge_strength = _row_edge_strength(color_rgb, depth, cfg, roi, roi_mask)
+    candidates: list[tuple[int, float]] = []
+
+    for bin_index, _bin in enumerate(bins):
+        group = inverse == bin_index
+        count = int(counts[bin_index])
+        if count < min_points:
+            continue
+        group_rows = rows[group]
+        group_cols = cols[group]
+        row = int(round(float(np.median(group_rows))))
+        if row <= ry1 or row >= ry2:
+            continue
+        col_span_ratio = (int(group_cols.max()) - int(group_cols.min()) + 1) / float(roi_width)
+        if col_span_ratio < min_width_ratio:
+            continue
+        z_span = float(points[group, 2].max() - points[group, 2].min())
+        if z_span < min_depth_span and col_span_ratio < 0.62:
+            continue
+        x_span = float(points[group, 0].max() - points[group, 0].min())
+        edge = float(edge_strength[row]) if 0 <= row < edge_strength.size else 0.0
+        score = float(count) * (0.35 + col_span_ratio) * (1.0 + min(1.0, z_span * 4.0)) * (1.0 + min(1.0, x_span * 1.8))
+        score *= 1.0 + min(1.0, edge / max(1.0, float(np.percentile(edge_strength, 90)) if edge_strength.size else 1.0))
+        candidates.append((row, score))
+
+    merged: list[tuple[int, float]] = []
+    gap = max(5, int(geom.get("shelf_plane_merge_gap_px", geom.get("shelf_merge_gap_px", 18))))
+    for row in _merge_positions([row for row, _ in candidates], gap):
+        near = [(r, s) for r, s in candidates if abs(r - row) <= gap]
+        if not near:
+            continue
+        weighted_row = int(round(sum(r * s for r, s in near) / max(1e-6, sum(s for _, s in near))))
+        merged.append((weighted_row, max(s for _, s in near)))
+    return sorted(merged, key=lambda item: item[0])
+
+
+def _select_point_cloud_boundaries(
+    color_rgb: np.ndarray,
+    depth: np.ndarray,
+    intr: Intrinsics,
+    cfg: dict[str, Any],
+    roi: Box,
+    roi_mask: np.ndarray,
+    valid_top: int,
+    valid_bottom: int,
+) -> list[int] | None:
+    geom = cfg["geometry"]
+    rx1, ry1, rx2, ry2 = roi
+    min_h = int(geom["shelf_min_height_px"])
+    top = max(ry1, valid_top)
+    bottom = min(ry2, valid_bottom)
+    if bottom - top < min_h:
+        return None
+
+    candidates = [(row, score) for row, score in _point_cloud_shelf_boundary_candidates(color_rgb, depth, intr, cfg, roi, roi_mask) if top + min_h <= row <= bottom - min_h]
+    if not candidates:
+        return None
+
+    expected_count = int(geom.get("shelf_count", 3))
+    infer_count = bool(geom.get("shelf_pointcloud_infer_count", True))
+    max_score = max(score for _, score in candidates)
+    min_ratio = float(geom.get("shelf_plane_min_score_ratio", 0.20))
+    selected: list[int] = []
+
+    if infer_count:
+        for row, score in sorted(candidates, key=lambda item: item[1], reverse=True):
+            if score < max_score * min_ratio:
+                continue
+            if all(abs(row - existing) >= min_h for existing in selected):
+                selected.append(row)
+        selected = sorted(selected)
+        inferred_boundaries = _merge_short_boundary_segments([top] + selected + [bottom], min_h, 1.0)
+        inferred_count = len(inferred_boundaries) - 1
+        min_count = int(geom.get("shelf_pointcloud_min_shelf_count", 2))
+        max_count = int(geom.get("shelf_pointcloud_max_shelf_count", 6))
+        enough_for_expected = expected_count <= 0 or inferred_count >= expected_count
+        if min_count <= inferred_count <= max_count and enough_for_expected:
+            return inferred_boundaries
+
+    if not bool(geom.get("shelf_pointcloud_expected_count_fallback", True)):
+        return None
+
+    if expected_count <= 0:
+        return None
+    search = int(geom.get("shelf_refine_search_px", 45))
+    edge_strength = _row_edge_strength(color_rgb, depth, cfg, roi, roi_mask)
+    base_boundaries = _equal_shelf_boundaries(top, bottom, expected_count)
+    base_boundaries = _refine_equal_boundaries_with_color_edges(color_rgb, (rx1, ry1, rx2, ry2), base_boundaries, cfg, roi_mask)
+    boundaries = [base_boundaries[0]]
+    for expected in base_boundaries[1:-1]:
+        nearby = [(row, score) for row, score in candidates if abs(row - expected) <= search]
+        if nearby:
+            row, _ = max(
+                nearby,
+                key=lambda item: item[1]
+                + float(edge_strength[item[0]]) * 80.0
+                - abs(item[0] - expected) * float(geom.get("shelf_pointcloud_expected_distance_penalty", 8.0)),
+            )
+            boundaries.append(row)
+        else:
+            boundaries.append(expected)
+    boundaries.append(base_boundaries[-1])
+    boundaries = _merge_short_boundary_segments(sorted(set(boundaries)), min_h, 1.0)
+    return boundaries if len(boundaries) >= 2 else None
+
+
 def detect_shelves(
     color_rgb: np.ndarray,
     depth: np.ndarray,
@@ -416,8 +746,20 @@ def detect_shelves(
     split_mode = str(geom.get("shelf_split_mode", "equal_count")).lower()
     if manual_boundaries:
         boundaries = manual_boundaries
+        plane_hint = "manual configured shelf boundaries"
+    elif split_mode in {"point_cloud", "pointcloud", "pc", "voxel", "voxel_plane"}:
+        pc_boundaries = _select_point_cloud_boundaries(color_rgb, depth, intr, cfg, (rx1, ry1, rx2, ry2), roi_mask, valid_top, valid_bottom)
+        if pc_boundaries:
+            boundaries = pc_boundaries
+            plane_hint = "voxelized point-cloud horizontal plane bands with RGB-D edge fallback"
+        else:
+            boundaries = _equal_shelf_boundaries(ry1, ry2, int(geom.get("shelf_count", 3)))
+            boundaries = _refine_equal_boundaries_with_color_edges(color_rgb, (rx1, ry1, rx2, ry2), boundaries, cfg, roi_mask)
+            plane_hint = "fallback image-depth horizontal band"
     elif split_mode in {"equal", "equal_count", "fixed", "fixed_count"}:
         boundaries = _equal_shelf_boundaries(ry1, ry2, int(geom.get("shelf_count", 3)))
+        boundaries = _refine_equal_boundaries_with_color_edges(color_rgb, (rx1, ry1, rx2, ry2), boundaries, cfg, roi_mask)
+        plane_hint = "configured equal bands refined by RGB-D edges"
     else:
         min_len = int(roi_width * float(geom["horizontal_line_min_length_ratio"]))
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180.0, threshold=70, minLineLength=min_len, maxLineGap=20)
@@ -465,6 +807,7 @@ def detect_shelves(
             int(geom.get("shelf_boundary_downshift_px", 0)),
             min_h,
         )
+        plane_hint = "image-depth horizontal line/depth discontinuity bands"
     bands: list[tuple[int, int]] = []
     for top, bottom in zip(boundaries, boundaries[1:]):
         if bottom - top >= min_h:
@@ -494,7 +837,7 @@ def detect_shelves(
         y1 = max(0, top + margin)
         y2 = min(height - 1, bottom - margin)
         z = region_median_depth(depth, (x1, y1, x2, y2), cfg)
-        shelves.append(Shelf(level=idx, box=(x1, y1, x2, y2), median_depth_m=z or 0.0))
+        shelves.append(Shelf(level=idx, box=(x1, y1, x2, y2), median_depth_m=z or 0.0, plane_hint=plane_hint))
     return shelves
 
 

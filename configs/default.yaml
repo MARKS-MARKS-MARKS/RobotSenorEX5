@@ -24,6 +24,8 @@ detector:
       - fork
       - knife
       - spoon
+      - metal spoon
+      - teaspoon
       - chopsticks
       - table knife
       - silverware
@@ -38,8 +40,6 @@ detector:
       - cereal
       - cereal box
       - breakfast cereal
-      - milk
-      - milk carton
       - bread
       - oatmeal
       - yogurt
@@ -64,13 +64,15 @@ detector:
     - box
     - food package
     - fruit
+    - watermelon
+    - melon
     - snack
     - toy
     - book
   unknown_threshold: 0.28
   low_conf_known_as_unknown: true
   category_thresholds:
-    Cutlery: 0.40
+    Cutlery: 0.28
     Tableware: 0.30
     Breakfast: 0.33
     Soft Drink: 0.30
@@ -113,13 +115,36 @@ geometry:
   detection_roi_min_overlap: 0.60
   filter_detections_to_single_shelf: true
   detection_shelf_margin_px: 4
+  roi_color_auto_enabled: true
+  roi_dark_percentile: 56
+  roi_dark_threshold_min: 52
+  roi_dark_threshold_max: 82
+  roi_dark_min_area_ratio: 0.25
+  roi_dark_column_min_ratio: 0.18
+  roi_dark_row_min_ratio: 0.16
+  roi_inner_margin_px: 3
   roi_edge_min_ratio: 0.35
   voxel_size_m: 0.01
   min_valid_depth_ratio: 0.10
-  shelf_split_mode: equal_count
+  shelf_split_mode: point_cloud
   shelf_count: 3
   shelf_boundaries_px:
   shelf_boundaries_norm:
+  shelf_refine_equal_boundaries: true
+  shelf_refine_search_px: 45
+  shelf_refine_min_gradient: 1.0
+  shelf_point_sample_stride_px: 2
+  shelf_pointcloud_infer_count: true
+  shelf_pointcloud_expected_count_fallback: true
+  shelf_pointcloud_min_shelf_count: 2
+  shelf_pointcloud_max_shelf_count: 6
+  shelf_pointcloud_expected_distance_penalty: 8.0
+  shelf_plane_y_bin_m: 0.018
+  shelf_plane_min_points: 45
+  shelf_plane_min_width_ratio: 0.34
+  shelf_plane_min_depth_span_m: 0.02
+  shelf_plane_min_score_ratio: 0.20
+  shelf_plane_merge_gap_px: 18
   horizontal_line_min_length_ratio: 0.25
   shelf_min_height_px: 50
   shelf_merge_gap_px: 18
