@@ -179,8 +179,8 @@ geometry:
   empty_object_shelf_overlap_min: 0.10
   empty_roi_column_min_ratio: 0.12
   empty_center_mode: center
-  empty_min_width_m: 0.04
-  empty_min_height_m: 0.04
+  empty_min_width_m: 0.09
+  empty_min_height_m: 0.3
   empty_min_depth_m: 0.04
   empty_max_per_shelf: 6
   empty_contact_band_ratio: 0.45
