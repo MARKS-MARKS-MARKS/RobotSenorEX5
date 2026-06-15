@@ -1,0 +1,309 @@
+% !TeX program = xelatex
+% 《感知与人机交互》课程大作业报告 LaTeX 模板
+% 编译方式：XeLaTeX
+
+\documentclass[UTF8,a4paper,12pt,fontset=none]{ctexart}
+
+\usepackage[left=1.30cm,right=1.30cm,top=2.95cm,bottom=2.00cm]{geometry}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\usepackage{tikz}
+\usepackage{eso-pic}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{ragged2e}
+
+% ==================== 字体 ====================
+% AutoFakeBold 用于让宋体、楷体支持加粗
+\setmainfont{Times New Roman}
+
+\setCJKmainfont[
+  AutoFakeBold=2.5
+]{AR PL SungtiL GB}
+
+\newCJKfontfamily\Song[
+  AutoFakeBold=2.5
+]{AR PL SungtiL GB}
+
+\newCJKfontfamily\Kai[
+  AutoFakeBold=2.5
+]{AR PL KaitiM GB}
+
+% ==================== 可编辑信息 ====================
+\newcommand{\ReportName}{实验五：多层柜子中的物品类别识别}
+\newcommand{\ReviewYear}{2026}
+
+\newcommand{\StudentNameA}{王昊然}
+\newcommand{\StudentIdA}{08123217}
+\newcommand{\StudentScoreA}{}
+
+\newcommand{\StudentNameB}{唐一宁}
+\newcommand{\StudentIdB}{}
+\newcommand{\StudentScoreB}{}
+
+\newcommand{\StudentNameC}{方舟}
+\newcommand{\StudentIdC}{}
+\newcommand{\StudentScoreC}{}
+
+
+% ==================== 正文格式 ====================
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+\onehalfspacing
+
+% 一级标题：楷体、加粗
+\titleformat{\section}
+  {\Kai\bfseries\zihao{-3}}
+  {\thesection.}
+  {0.45em}
+  {}
+
+\titlespacing*{\section}
+  {0pt}
+  {1.35em}
+  {0.75em}
+
+% 二级标题：楷体、加粗
+\titleformat{\subsection}
+  {\Kai\bfseries\zihao{4}}
+  {\thesubsection}
+  {0.55em}
+  {}
+
+\titlespacing*{\subsection}
+  {2em}
+  {1.00em}
+  {0.45em}
+
+\captionsetup[table]{
+  name=表,
+  labelsep=space,
+  justification=centering,
+  font={small},
+  skip=5pt
+}
+
+\pagestyle{empty}
+
+% ==================== 全文页眉和页码 ====================
+\AddToShipoutPictureFG{%
+  \begin{tikzpicture}[remember picture,overlay]
+
+    % 封面页页眉加粗，正文页保持正常
+    \ifnum\value{page}=0
+      \node[
+        anchor=center,
+        font=\Song\bfseries\zihao{-5}
+      ]
+      at ([xshift=105mm,yshift=-18.2mm]current page.north west)
+      {课程大作业};
+    \else
+      \node[
+        anchor=center,
+        font=\Song\zihao{-5}
+      ]
+      at ([xshift=105mm,yshift=-18.2mm]current page.north west)
+      {课程大作业};
+    \fi
+
+    \draw[line width=0.60pt]
+      ([xshift=20mm,yshift=-20.9mm]current page.north west)
+      --
+      ([xshift=190mm,yshift=-20.9mm]current page.north west);
+
+    % 封面页页码加粗，正文页保持正常
+    \ifnum\value{page}=0
+      \node[
+        anchor=center,
+        font=\Song\bfseries\zihao{-5}
+      ]
+      at ([xshift=105mm,yshift=-277.0mm]current page.north west)
+      {\thepage};
+    \else
+      \node[
+        anchor=center,
+        font=\Song\zihao{-5}
+      ]
+      at ([xshift=105mm,yshift=-277.0mm]current page.north west)
+      {\thepage};
+    \fi
+
+  \end{tikzpicture}%
+}
+
+% ==================== 封面学生信息 ====================
+% 整行以页面中心为基准
+% 姓名、学号、评定成绩均加粗
+\newcommand{\StudentLine}[3]{%
+  \makebox[168mm][c]{%
+    {\Song\bfseries 姓名：}%
+    \underline{\makebox[34mm][c]{\Song\bfseries #1}}%
+    \hspace{5mm}%
+    {\Song\bfseries 学号：}%
+    \underline{\makebox[38mm][c]{\Song\bfseries #2}}%
+    \hspace{5mm}%
+    {\Song\bfseries 评定成绩：}%
+    \underline{\makebox[34mm][c]{\Song\bfseries #3}}%
+  }%
+}
+
+\begin{document}
+
+\Song
+\setcounter{page}{0}
+
+% ==================================================
+% 封面页
+% 所有文字均加粗
+% ==================================================
+\null
+
+\begin{tikzpicture}[remember picture,overlay]
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{24pt}{30pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-51mm]current page.north west)
+  {东南大学};
+
+  \node[
+    anchor=center,
+    font=\Kai\bfseries\fontsize{26pt}{34pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-86mm]current page.north west)
+  {《感知与人机交互》};
+
+  \node[
+    anchor=center,
+    font=\Kai\bfseries\fontsize{26pt}{34pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-114mm]current page.north west)
+  {课程大作业};
+
+  \node[
+    anchor=center,
+    font=\Kai\bfseries\fontsize{16pt}{21pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-139mm]current page.north west)
+  {名称：\ReportName};
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-164mm]current page.north west)
+  {\StudentLine{\StudentNameA}{\StudentIdA}{\StudentScoreA}};
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-177mm]current page.north west)
+  {\StudentLine{\StudentNameB}{\StudentIdB}{\StudentScoreB}};
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-190mm]current page.north west)
+  {\StudentLine{\StudentNameC}{\StudentIdC}{\StudentScoreC}};
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-232mm]current page.north west)
+  {%
+    \makebox[168mm][l]{%
+      评语：%
+      \underline{\makebox[138mm][l]{}}%
+    }%
+  };
+
+  \node[
+    anchor=center,
+    font=\Song\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-248mm]current page.north west)
+  {%
+    审阅教师：%
+    \underline{\makebox[42mm][c]{}}%
+  };
+
+  \node[
+    anchor=center,
+    font=\Kai\bfseries\fontsize{14pt}{18pt}\selectfont
+  ]
+  at ([xshift=105mm,yshift=-262mm]current page.north west)
+  {\ReviewYear 年 6 月 18 日};
+
+\end{tikzpicture}
+
+\newpage
+
+% ==================================================
+% 正文页
+% ==================================================
+
+\section{总体完成情况（主笔人：）}
+
+\begin{table}[htbp]
+  \centering
+  \caption{小组人员及分工}
+
+  \renewcommand{\arraystretch}{1.32}
+
+  \begin{tabular}{
+    >{\raggedright\arraybackslash}p{0.15\textwidth}
+    >{\raggedright\arraybackslash}p{0.14\textwidth}
+    >{\raggedright\arraybackslash}p{0.63\textwidth}
+  }
+    \toprule
+
+    姓名
+    &
+    学号
+    &
+    实际完成的设计/开发/实验工作，承担任务占比例（\%）
+    \\
+
+    \midrule
+
+    \rule{0pt}{1.65em} 王昊然& 08123217 & \\
+    \rule{0pt}{1.65em} 唐一宁& 081231 & \\
+    \rule{0pt}{1.65em} 方舟& 081231 & \\
+
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{总体原理与设计}
+
+\vspace{1.65cm}
+
+\section{具体分工开发实现}
+
+\subsection{}
+
+\vspace{0.85cm}
+
+\subsection{}
+
+\vspace{0.85cm}
+
+\section{实验评估}
+
+\vspace{1.10cm}
+
+\section{分析总结}
+
+\newpage
+
+\section{附录}
+
+\end{document}
+
