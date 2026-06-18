@@ -545,6 +545,119 @@ def _sample_voxelized_roi_points(
     return points[unique_idx], rows[unique_idx], cols[unique_idx]
 
 
+def _fit_plane_from_three_points(points: np.ndarray) -> tuple[np.ndarray, float] | None:
+    p0, p1, p2 = points
+    normal = np.cross(p1 - p0, p2 - p0)
+    norm = float(np.linalg.norm(normal))
+    if norm < 1e-6:
+        return None
+    normal = (normal / norm).astype(np.float32)
+    if normal[1] < 0:
+        normal = -normal
+    offset = -float(np.dot(normal, p0))
+    return normal, offset
+
+
+def _ransac_horizontal_plane_candidates_from_points(
+    points: np.ndarray,
+    rows: np.ndarray,
+    cols: np.ndarray,
+    cfg: dict[str, Any],
+    roi_width: int,
+) -> list[dict[str, Any]]:
+    geom = cfg["geometry"]
+    if not bool(geom.get("shelf_ransac_enabled", True)):
+        return []
+    min_inliers = int(geom.get("shelf_ransac_min_inliers", 55))
+    if points.shape[0] < max(3, min_inliers):
+        return []
+
+    iterations = int(geom.get("shelf_ransac_iterations", 180))
+    distance = float(geom.get("shelf_ransac_distance_m", 0.018))
+    normal_y_min = float(geom.get("shelf_ransac_normal_y_min", 0.82))
+    min_width_ratio = float(geom.get("shelf_ransac_min_width_ratio", 0.32))
+    max_planes = int(geom.get("shelf_ransac_max_planes", 8))
+    seed = int(geom.get("shelf_ransac_seed", 7))
+    rng = np.random.default_rng(seed)
+
+    available = np.ones(points.shape[0], dtype=bool)
+    candidates: list[dict[str, Any]] = []
+    roi_width = max(1, int(roi_width))
+
+    for _ in range(max(0, max_planes)):
+        pool = np.where(available)[0]
+        if pool.size < max(3, min_inliers):
+            break
+
+        best: dict[str, Any] | None = None
+        for _iter in range(max(1, iterations)):
+            sample_idx = rng.choice(pool, size=3, replace=False)
+            fitted = _fit_plane_from_three_points(points[sample_idx])
+            if fitted is None:
+                continue
+            normal, offset = fitted
+            if abs(float(normal[1])) < normal_y_min:
+                continue
+
+            distances = np.abs(points[pool] @ normal + offset)
+            inliers = pool[distances <= distance]
+            if inliers.size < min_inliers:
+                continue
+
+            group_cols = cols[inliers]
+            col_span_ratio = (int(group_cols.max()) - int(group_cols.min()) + 1) / float(roi_width)
+            if col_span_ratio < min_width_ratio:
+                continue
+
+            group_rows = rows[inliers]
+            x_span = float(points[inliers, 0].max() - points[inliers, 0].min())
+            z_span = float(points[inliers, 2].max() - points[inliers, 2].min())
+            mean_error = float(np.mean(np.abs(points[inliers] @ normal + offset)))
+            row = int(round(float(np.median(group_rows))))
+            score = float(inliers.size) * (0.45 + col_span_ratio) * (1.0 + min(1.0, x_span * 1.8))
+            score *= 1.0 + min(1.0, z_span * 2.0)
+            score *= 1.0 + max(0.0, abs(float(normal[1])) - normal_y_min)
+            score *= 1.0 / (1.0 + mean_error / max(1e-6, distance))
+
+            if best is None or score > float(best["score"]):
+                best = {
+                    "row": row,
+                    "score": score,
+                    "normal": normal,
+                    "offset": offset,
+                    "inliers": inliers,
+                    "inlier_count": int(inliers.size),
+                    "mean_error_m": mean_error,
+                    "col_span_ratio": float(col_span_ratio),
+                    "centroid": points[inliers].mean(axis=0).astype(np.float32),
+                }
+
+        if best is None:
+            break
+        candidates.append(best)
+        available[best["inliers"]] = False
+
+    return sorted(candidates, key=lambda item: int(item["row"]))
+
+
+def ransac_shelf_plane_debug(
+    depth: np.ndarray,
+    intr: Intrinsics,
+    cfg: dict[str, Any],
+    roi: Box,
+    roi_mask: np.ndarray,
+) -> dict[str, Any]:
+    points, rows, cols = _sample_voxelized_roi_points(depth, intr, cfg, roi, roi_mask)
+    roi_width = max(1, roi[2] - roi[0])
+    planes = _ransac_horizontal_plane_candidates_from_points(points, rows, cols, cfg, roi_width)
+    return {
+        "points": points,
+        "rows": rows,
+        "cols": cols,
+        "planes": planes,
+    }
+
+
 def _row_edge_strength(
     color_rgb: np.ndarray,
     depth: np.ndarray,
@@ -609,6 +722,15 @@ def _point_cloud_shelf_boundary_candidates(
     min_depth_span = float(geom.get("shelf_plane_min_depth_span_m", 0.02))
     edge_strength = _row_edge_strength(color_rgb, depth, cfg, roi, roi_mask)
     candidates: list[tuple[int, float]] = []
+
+    for plane in _ransac_horizontal_plane_candidates_from_points(points, rows, cols, cfg, roi_width):
+        row = int(plane["row"])
+        if row <= ry1 or row >= ry2:
+            continue
+        edge = float(edge_strength[row]) if 0 <= row < edge_strength.size else 0.0
+        score = float(plane["score"]) * float(geom.get("shelf_ransac_score_boost", 1.25))
+        score *= 1.0 + min(0.5, edge / max(1.0, float(np.percentile(edge_strength, 90)) if edge_strength.size else 1.0))
+        candidates.append((row, score))
 
     for bin_index, _bin in enumerate(bins):
         group = inverse == bin_index
@@ -751,7 +873,7 @@ def detect_shelves(
         pc_boundaries = _select_point_cloud_boundaries(color_rgb, depth, intr, cfg, (rx1, ry1, rx2, ry2), roi_mask, valid_top, valid_bottom)
         if pc_boundaries:
             boundaries = pc_boundaries
-            plane_hint = "voxelized point-cloud horizontal plane bands with RGB-D edge fallback"
+            plane_hint = "voxelized point-cloud RANSAC horizontal plane segmentation with RGB-D edge fallback"
         else:
             boundaries = _equal_shelf_boundaries(ry1, ry2, int(geom.get("shelf_count", 3)))
             boundaries = _refine_equal_boundaries_with_color_edges(color_rgb, (rx1, ry1, rx2, ry2), boundaries, cfg, roi_mask)

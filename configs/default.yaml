@@ -139,6 +139,15 @@ geometry:
   shelf_pointcloud_min_shelf_count: 2
   shelf_pointcloud_max_shelf_count: 6
   shelf_pointcloud_expected_distance_penalty: 8.0
+  shelf_ransac_enabled: true
+  shelf_ransac_iterations: 180
+  shelf_ransac_distance_m: 0.018
+  shelf_ransac_normal_y_min: 0.82
+  shelf_ransac_min_inliers: 55
+  shelf_ransac_min_width_ratio: 0.32
+  shelf_ransac_max_planes: 8
+  shelf_ransac_score_boost: 1.25
+  shelf_ransac_seed: 7
   shelf_plane_y_bin_m: 0.018
   shelf_plane_min_points: 45
   shelf_plane_min_width_ratio: 0.34
